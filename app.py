@@ -55,16 +55,16 @@ if not found and search_kw.strip():
 selected_period = st.sidebar.selectbox("K線時間範圍", ["1個月", "3個月", "6個月", "1年", "2年"], index=2)
 period_map = {"1個月": "1mo", "3個月": "3mo", "6個月": "6mo", "1年": "1y", "2年": "2y"}
 
-@st.cache_data(ttl=300)
+# 抓取資料（不快取 complex object 以防 pickle error）
 def load_data(symbol, period):
     ticker = yf.Ticker(symbol)
     df = ticker.history(period=period)
     df = df.dropna(subset=['Close'])
     info = ticker.info
-    return df, info, ticker
+    return df, info
 
 try:
-    data, stock_info, ticker_obj = load_data(matched_symbol, period_map[selected_period])
+    data, stock_info = load_data(matched_symbol, period_map[selected_period])
 
     if data.empty:
         st.error(f"找不到 {matched_title} 的資料，請確認代號是否正確。")
@@ -94,17 +94,15 @@ try:
         # 估價模型卡片：便宜價、合理價、昂貴價
         st.subheader("💰 價值估價模型（便宜 / 合理 / 昂貴價）")
         
-        # 計算近五年/當前本益比與歷史價格區間估算
-        pe_ratio = stock_info.get('trailingPE', None)
         eps = stock_info.get('trailingEps', None)
         
-        # 以歷史高低價與近四季EPS進行本益比法估算
+        # 以近四季EPS進行本益比法估算
         if eps and eps > 0:
             cheap_price = eps * 12    # 便宜價：12倍本益比
             fair_price = eps * 15     # 合理價：15倍本益比
             expensive_price = eps * 20 # 昂貴價：20倍本益比
         else:
-            # 若無EPS資料，改用近6個月歷史價格位階估算
+            # 若無EPS資料，改用近區間高低價估算
             high_p = data['High'].max()
             low_p = data['Low'].min()
             cheap_price = low_p + (high_p - low_p) * 0.2
