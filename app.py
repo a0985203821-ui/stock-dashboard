@@ -40,15 +40,15 @@ st.sidebar.markdown("---")
 st.sidebar.info("💡 籌碼提示：關注主力與三大法人連買/連賣走勢，作為多空判斷參考。")
 
 # 抓取資料
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600)
 def load_data(symbol, period):
     ticker = yf.Ticker(symbol)
     df = ticker.history(period=period)
-    info = ticker.info
-    return df, info
+    df = df.dropna(subset=['Close']) # 清除可能含有的無效空值
+    return df
 
 try:
-    data, stock_info = load_data(ticker_symbol, period_options[selected_period])
+    data = load_data(ticker_symbol, period_options[selected_period])
 
     if data.empty:
         st.error(f"找不到 {ticker_symbol} 的資料，請確認股票代號是否正確。")
@@ -68,8 +68,12 @@ try:
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("最新收盤價", f"{latest_close:.2f} 元", f"{price_change:+.2f} ({pct_change:+.2f}%)")
         col2.metric("成交量", f"{int(latest_vol/1000):,} 張")
-        col3.metric("5日均線 (MA5)", f"{data['MA5'].iloc[-1]:.2f} 元")
-        col4.metric("20日月線 (MA20)", f"{data['MA20'].iloc[-1]:.2f} 元")
+        
+        ma5_val = data['MA5'].dropna().iloc[-1] if not data['MA5'].dropna().empty else 0
+        ma20_val = data['MA20'].dropna().iloc[-1] if not data['MA20'].dropna().empty else 0
+        
+        col3.metric("5日均線 (MA5)", f"{ma5_val:.2f} 元")
+        col4.metric("20日月線 (MA20)", f"{ma20_val:.2f} 元")
 
         st.markdown("---")
 
@@ -110,9 +114,8 @@ try:
         with tab1:
             st.subheader("💡 籌碼與主力動態觀察")
             
-            # 計算估計主力指標 (價量趨勢動向)
             vol_ma5 = data['Volume'].rolling(window=5).mean()
-            is_volume_up = latest_vol > vol_ma5.iloc[-1]
+            is_volume_up = latest_vol > (vol_ma5.iloc[-1] if not vol_ma5.empty else 0)
             is_price_up = price_change > 0
 
             st.write(f"**【{display_title}】籌碼指標快速判讀：**")
@@ -138,3 +141,4 @@ try:
 
 except Exception as e:
     st.error(f"資料讀取時發生錯誤: {e}")
+
