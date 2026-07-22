@@ -8,7 +8,7 @@ from plotly.subplots import make_subplots
 st.set_page_config(page_title="台股籌碼與主力動態戰情室", page_icon="📈", layout="wide")
 
 st.title("📈 台股籌碼與主力動態戰情室")
-st.caption("陳重銘式價值估價法 × 千張大戶籌碼動態 × 技術面進出場訊號")
+st.caption("法人動態本益比估價模型 × 千張大戶籌碼動態 × 技術面進出場訊號")
 
 # 常見熱門台股對照表 (支援中文/數字模糊搜尋)
 STOCK_DATABASE = {
@@ -30,10 +30,10 @@ STOCK_DATABASE = {
 
 st.sidebar.header("🔍 股票搜尋與選擇")
 
-search_kw = st.sidebar.text_input("輸入股票名稱或代號（例：臻鼎、華邦、4958）", "臻鼎")
+search_kw = st.sidebar.text_input("輸入股票名稱或代號（例：台積電、臻鼎、2330）", "台積電")
 
-matched_symbol = "4958.TW"
-matched_title = "4958 臻鼎-KY"
+matched_symbol = "2330.TW"
+matched_title = "2330 台積電"
 
 found = False
 for code, (name, symbol) in STOCK_DATABASE.items():
@@ -49,7 +49,7 @@ if not found and search_kw.strip():
         matched_symbol = f"{kw}.TW"
         matched_title = f"{kw} 自訂個股"
     else:
-        st.sidebar.warning("⚠️ 未找到匹配股票，預設顯示 4958 臻鼎-KY")
+        st.sidebar.warning("⚠️ 未找到匹配股票，預設顯示 2330 台積電")
 
 selected_period = st.sidebar.selectbox("K線時間範圍", ["3個月", "6個月", "1年", "2年", "5年"], index=2)
 period_map = {"3個月": "3mo", "6個月": "6mo", "1年": "1y", "2年": "2y", "5年": "5y"}
@@ -59,16 +59,15 @@ def load_data(symbol, period):
     df = ticker.history(period=period)
     df = df.dropna(subset=['Close'])
     info = ticker.info
-    dividends = ticker.dividends
-    return df, info, dividends
+    return df, info
 
 try:
-    data, stock_info, dividends = load_data(matched_symbol, period_map[selected_period])
+    data, stock_info = load_data(matched_symbol, period_map[selected_period])
 
     if data.empty:
         st.error(f"找不到 {matched_title} 的資料，請確認代號是否正確。")
     else:
-        # 算技術指標
+        # 技術指標計算
         data['MA5'] = data['Close'].rolling(window=5).mean()
         data['MA20'] = data['Close'].rolling(window=20).mean()
         data['MA60'] = data['Close'].rolling(window=60).mean()
@@ -89,30 +88,25 @@ try:
 
         st.markdown("---")
 
-        # 1. 陳重銘式估價模型 (近5年平均股利法 / 歷史高低位階法)
-        st.subheader("💰 陳重銘式價值估價模型（便宜 / 合理 / 昂貴價）")
+        # 1. 專業動態本益比估價模型（最貼近台積電與半導體/科技股實情）
+        st.subheader("💰 科技與成長股動態本益比估價模型（便宜 / 合理 / 昂貴價）")
         
-        # 股利計算
-        if not dividends.empty:
-            recent_divs = dividends.resample('YE').sum().tail(5)
-            avg_div = recent_divs.mean() if len(recent_divs) > 0 else 0
+        eps = stock_info.get('trailingEps', None)
+        
+        # 針對台積電或半導體科技股，若有 EPS 則採用 18 / 22 / 26 倍動態本益比估算
+        if eps and eps > 0:
+            cheap_price = eps * 18.0     # 便宜價（18倍PE）
+            fair_price = eps * 22.0      # 合理價（22倍PE）
+            expensive_price = eps * 26.0 # 昂貴價（26倍PE）
+            eval_method = f"（依近四季 EPS {eps:.2f} 元 × 動態本益比倍數 18/22/26 倍估算）"
         else:
-            avg_div = 0
-
-        # 若有配息歷史，採用陳重銘經典配息估價法：便宜價=股利x15, 合理價=股利x20, 昂貴價=股利x30
-        if avg_div > 0.5:
-            cheap_price = avg_div * 15
-            fair_price = avg_div * 20
-            expensive_price = avg_div * 30
-            eval_method = f"（依近五年平均現金股利 {avg_div:.2f} 元計算）"
-        else:
-            # 無高配息時採用近 2 年近位階區間法
+            # 若無EPS資料，以近一年歷史波段高低位階計算
             h_max = data['High'].max()
             l_min = data['Low'].min()
             cheap_price = l_min + (h_max - l_min) * 0.25
             fair_price = l_min + (h_max - l_min) * 0.55
             expensive_price = l_min + (h_max - l_min) * 0.85
-            eval_method = "（依歷史股價高低位階法計算）"
+            eval_method = "（依歷史波段高低價位階估算）"
 
         v1, v2, v3, v4 = st.columns(4)
         v1.metric("🟢 便宜價", f"{cheap_price:.2f} 元")
@@ -141,7 +135,6 @@ try:
             ma5_prev = data['MA5'].iloc[-2]
             ma20_prev = data['MA20'].iloc[-2]
 
-            # 黃金交叉 / 死亡交叉判斷
             golden_cross = (ma5_prev <= ma20_prev) and (ma5_curr > ma20_curr)
             death_cross = (ma5_prev >= ma20_prev) and (ma5_curr < ma20_curr)
             is_bull = ma5_curr > ma20_curr
@@ -159,13 +152,13 @@ try:
                     st.warning("📉 **空頭整理中**：股價位於月線之下，建議等待止跌打底。")
 
             with s2:
-                st.write("#### 💡 買賣點操作建議（陳重銘價值策略）")
+                st.write("#### 💡 買賣點操作建議")
                 if latest_close <= cheap_price and is_bull:
                     st.success("🔥 **最佳買點**：股價處於便宜價，且技術面出現多頭訊號，適合分批佈局！")
                 elif latest_close <= cheap_price:
                     st.info("🛒 **分批定期定額**：價格落入便宜區間，可開始分批進場累積張數。")
                 elif latest_close >= expensive_price:
-                    st.error("🛑 **高檔獲利獲利點**：價格已達昂貴價，不宜追高，可考慮分批停利。")
+                    st.error("🛑 **高檔獲利停利點**：價格已達昂貴價，不宜追高，可考慮分批停利。")
                 else:
                     st.secondary("⌛ **續抱觀望**：目前處於合理價格區間，建議續抱並關注大戶籌碼。")
 
@@ -173,10 +166,9 @@ try:
             st.subheader("🏛️ 大戶與主力籌碼集中度估算")
             st.caption("註：集中度由三大法人累積籌碼與大戶動向綜合模型計算")
 
-            # 估算大戶籌碼佔比卡片
             inst_ownership = stock_info.get('heldPercentInstitutions', 0.45) * 100
-            big_1000_est = min(inst_ownership + 22.5, 88.5) # 估算千張大戶佔比
-            big_400_est = min(big_1000_est + 8.2, 92.0)     # 估算400張大戶佔比
+            big_1000_est = min(inst_ownership + 22.5, 88.5)
+            big_400_est = min(big_1000_est + 8.2, 92.0)
 
             d1, d2, d3 = st.columns(3)
             d1.metric("🏢 三大法人持股比重", f"{inst_ownership:.1f} %")
